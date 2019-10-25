@@ -9,6 +9,8 @@ Features:
 4) Support Accept-Ranges: bytes (for in browser MP4 playing)
 5) Concurrency by pre-fork
 
+![demo.gif](demo.gif)
+
 ## Getting Started
 
 These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
@@ -56,10 +58,6 @@ We had successfully tested this application with 'ngrok'
 ./ngrok http X
 ```
 4) Now open the link given in terminal by ngrok in any of your favourite device and place
-
-## Demo
-
-![demo.gif](demo.gif)
 
 ## Author
 
