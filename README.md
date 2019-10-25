@@ -55,9 +55,7 @@ We had successfully tested this application with 'ngrok'
 ```
 ./ngrok http X
 ```
-where X is port where you have launched rvc-tcp-server
-
-4) Get the hostname and port no Y from ngrok and use them to connect other rvc-tcp-clients
+4) Now open the link given in terminal by ngrok in any of your favourite device and place
 
 ## Demo
 
