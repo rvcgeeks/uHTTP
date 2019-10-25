@@ -53,7 +53,7 @@ We had successfully tested this application with 'ngrok'
 2) Launch rvc-tcp-station server at say port X (>1024) 
 3) Launch ngrok in plain tcp mode 
 ```
-./ngrok tcp X
+./ngrok http X
 ```
 where X is port where you have launched rvc-tcp-server
 
