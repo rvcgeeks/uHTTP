@@ -41,7 +41,7 @@ typedef struct {
     const char *mime_type;
 } mime_map;
 
-mime_map meme_types [] = {
+mime_map mime_types [] = {
     {".css", "text/css"},
     {".gif", "image/gif"},
     {".htm", "text/html"},
@@ -202,7 +202,7 @@ void handle_directory_request(int out_fd, int dir_fd, char *filename){
 static const char* get_mime_type(char *filename){
     char *dot = strrchr(filename, '.');
     if(dot){ // strrchar Locate last occurrence of character in string
-        mime_map *map = meme_types;
+        mime_map *map = mime_types;
         while(map->extension){
             if(strcmp(map->extension, dot) == 0){
                 return map->mime_type;
