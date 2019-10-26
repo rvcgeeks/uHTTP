@@ -1,5 +1,5 @@
 #!/bin/bash
 	cc -Wall -Os uhttp.c -o uhttp
 	./uhttp &
-	firefox http://127.0.0.1:8000/README.html
+	firefox http://localhost:8000/getting_started/index.html
 	kill -2 `pidof uhttp`
