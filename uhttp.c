@@ -167,7 +167,7 @@ void handle_directory_request(int out_fd, int dir_fd, char *filename){
     sprintf(buf, "HTTP/1.1 200 OK\r\n%s%s%s%s%s",
             "Content-Type: text/html\r\n\r\n",
             "<html><head><style>",
-            "body{font-family: monospace; font-size: 20px;}",
+            "body{font-family: monospace; font-size: 100px;}",
             "td {padding: 1.5px 6px;}",
             "</style></head><body><table>\n");
     writen(out_fd, buf, strlen(buf));
@@ -249,24 +249,17 @@ int open_listenfd(int port){
 }
 
 void get_time_str(char *timestr){
-    int millisec;
     struct tm* tm_info;
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
-
-    millisec = tv.tv_usec/1000.0; // Round to nearest millisec
-    if (millisec>=1000) { // Allow for rounding up to nearest second
-        millisec -=1000;
-        tv.tv_sec++;
-    }
-
     tm_info = localtime(&tv.tv_sec);
 
     strftime(timestr, 26, "%d/%m/%Y,%H:%M:%S:", tm_info);
-    char ms[100];
-    sprintf(ms,"%04d", millisec);
-    strcat(timestr, ms);
+    char msstr[100];
+    int us = tv.tv_usec;
+    sprintf(msstr,"%06d ", us);
+    strcat(timestr, msstr);
 }
 
 void url_decode(char* src, char* dest, int max) {
@@ -414,7 +407,7 @@ void ignore(int sig){
 void terminate(int sig){
     int pid = getpid(); char timestr[100];
     get_time_str(timestr);
-    printf("%s@%d : terminating\n", timestr, pid);
+    printf("%s@%d : terminating listener\n", timestr, pid);
     kill(pid, SIGTERM);
 }
 
@@ -454,7 +447,12 @@ int main(int argc, char** argv){
 
     listenfd = open_listenfd(port_no);
     if (listenfd > 0) {
-        printf("listen on port %d with socket descriptor %d with %d listeners\n", port_no, listenfd, max_listeners);
+        printf("\033[1;94m\033[38;2;0;0;255m  < RVC micro HTTP server by @rvcgeeks >  \033[0m\n"
+               "Server is:\nListening on port %d\nWith socket descriptor %d\nWith %d listeners\nDeployed at:\n"
+               , port_no, listenfd, max_listeners);
+        i = system("hostname -I");
+        printf("PRESS Ctrl - C to terminate.\n\n"
+               "\033[48;2;255;0;0m\033[1;94m\033[38;2;255;255;255mDD/MM/YYYY,HH:MM:SS:u-secs @pid  : current action        \033[0m\n");
     } else {
         perror("ERROR");
         exit(listenfd);
