@@ -61,6 +61,8 @@ mime_map mime_types[] = {
     {".js", "application/javascript"},
     {".pdf", "application/pdf"},
     {".mp4", "video/mp4"},
+    {".mp3", "audio/mpeg"},
+    {".ogg", " audio/ogg"},
     {".png", "image/png"},
     {".svg", "image/svg+xml"},
     {".xml", "text/xml"},
@@ -355,7 +357,7 @@ void client_error(int fd, int status, char *msg, char *longmsg) {
 
 void serve_static(int out_fd, int in_fd, http_request *req,
                   size_t total_size) {
-    char buf[256], timestr[100];
+    char buf[256], temp[256], timestr[100]; int i, pid;
     if (req->offset > 0) {
         sprintf(buf, "HTTP/1.1 206 Partial\r\n");
         sprintf(buf + strlen(buf), "Content-Range: bytes %lu-%lu/%lu\r\n",
@@ -370,15 +372,22 @@ void serve_static(int out_fd, int in_fd, http_request *req,
             req->end - req->offset);
     sprintf(buf + strlen(buf), "Content-type: %s\r\n\r\n",
             get_mime_type(req->filename));
-
     writen(out_fd, buf, strlen(buf));
     off_t offset = req->offset; /* copy */
-    while(offset < req->end) {
+    while(offset < req->end) {       
+        for(i = 0; i < strlen(buf); i++)
+            if(buf[i] == '\n' || buf[i] == '\r')
+                temp[i] = ' ';
+            else
+                temp[i] = buf[i];
+        pid = getpid();
+        get_time_str(timestr);
+        printf("\033[1;94m\033[38;2;255;100;255m%s@%d : %s\033[0m\n", timestr, pid, temp);
         if(sendfile(out_fd, in_fd, &offset, req->end - req->offset) <= 0) {
             break;
         }
         get_time_str(timestr);
-        printf("%s@%d : offset:%li \n", timestr,getpid(), offset);
+        printf("%s@%d : offset:%li \n", timestr, pid, offset);
         close(out_fd);
         break;
     }
@@ -469,9 +478,8 @@ int main(int argc, char** argv) {
     listenfd = open_listenfd(port_no);
     if (listenfd > 0) {
         printf("\033[1;94m\033[38;2;0;0;255m  < RVC micro HTTP server by @rvcgeeks >  \033[0m\n"
-               "Server is:\nListening on port %d\nWith socket descriptor %d\nWith %d listeners\nDeployed at:\n"
+               "Server is:\nListening on port %d\nWith socket descriptor %d\nWith %d listeners\n"
                , port_no, listenfd, max_listeners);
-        i = system("hostname -I");
         printf("PRESS Ctrl - C to terminate.\n\n"
                "\033[48;2;255;0;0m\033[1;94m\033[38;2;255;255;255mDD/MM/YYYY,HH:MM:SS:u-secs @pid  : current action        \033[0m\n");
     } else {
