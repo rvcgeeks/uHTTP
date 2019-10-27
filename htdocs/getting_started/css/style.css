@@ -12,3 +12,7 @@
 
     margin: auto;
 }
+
+audio {
+    display:none;
+}
