@@ -16,17 +16,18 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>               /* set timeout to read a GET request */
 #include <arpa/inet.h>          /* inet_ntoa */
 #include <netinet/tcp.h>
 #include <sys/sendfile.h>
 #include <sys/time.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 
 
 #define LISTENQ  1024  /* second argument to listen() */
 #define MAXLINE 1024   /* max length of a line */
 #define RIO_BUFSIZE 1024
+#define TIMEOUT 3000  /* 10s timeout on idle read */
 
 
 typedef struct {                /* Persistent state for the robust I/O (rio) */
@@ -73,6 +74,21 @@ mime_map mime_types[] = {
 char *default_mime_type = "text/plain";
 
 
+void get_time_str(char *timestr) {
+    struct tm *tm_info;
+    struct timeval tv;
+    
+    gettimeofday(&tv, NULL);
+    tm_info = localtime(&tv.tv_sec);
+    
+    strftime(timestr, 26, "%d/%m/%Y,%H:%M:%S:", tm_info);
+    char msstr[100];
+    int us = tv.tv_usec;
+    sprintf(msstr,"%06d ", us);
+    strcat(timestr, msstr);
+}
+
+
 void rio_init(rio_t *rp, int fd) {
     rp->rio_fd = fd;
     rp->rio_cnt = 0;
@@ -99,6 +115,19 @@ ssize_t writen(int fd, void *usrbuf, size_t n) {
 }
 
 
+int fd_can_read(int fd, int timeout) {
+    struct pollfd pfd;
+
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+
+    if (poll(&pfd, 1, timeout)) {
+        if (pfd.revents & POLLIN)
+            return 1;
+    }
+    return 0;
+}
+
 /*
  * rio_read - This is a wrapper for the Unix read() function that
  *    transfers min(n, rio_cnt) bytes from an internal buffer to a user
@@ -109,11 +138,15 @@ ssize_t writen(int fd, void *usrbuf, size_t n) {
  */
 /* $begin rio_read */
 static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n) {
-    int cnt;
+    int cnt; char timestr[100];
     while (rp->rio_cnt <= 0) {  /* refill if buf is empty */
-
-        rp->rio_cnt = read(rp->rio_fd, rp->rio_buf,
-                           sizeof(rp->rio_buf));
+        if (fd_can_read(rp->rio_fd, TIMEOUT)) {
+            rp->rio_cnt = read(rp->rio_fd, rp->rio_buf, sizeof(rp->rio_buf));
+        } else {
+            get_time_str(timestr);
+            printf("\033[1;94m\033[38;2;255;0;0m%s@%d : Robust IO: read timeout!\033[0m\n", timestr, getpid());
+            return -1;
+        }
         if (rp->rio_cnt < 0) {
             if (errno != EINTR) /* interrupted by sig handler return */
                 return -1;
@@ -165,13 +198,13 @@ void format_size(char* buf, struct stat *stat) {
     } else {
         off_t size = stat->st_size;
         if(size < 1024) {
-            sprintf(buf, "%lu", size);
+            sprintf(buf, "%lu B", size);
         } else if (size < 1024 * 1024) {
-            sprintf(buf, "%.1fK", (double)size / 1024);
+            sprintf(buf, "%.2f KB", (double)size / 1024);
         } else if (size < 1024 * 1024 * 1024) {
-            sprintf(buf, "%.1fM", (double)size / 1024 / 1024);
+            sprintf(buf, "%.2f MB", (double)size / 1024 / 1024);
         } else {
-            sprintf(buf, "%.1fG", (double)size / 1024 / 1024 / 1024);
+            sprintf(buf, "%.2f GB", (double)size / 1024 / 1024 / 1024);
         }
     }
 }
@@ -183,9 +216,9 @@ void handle_directory_request(int out_fd, int dir_fd, char *filename) {
     sprintf(buf, "HTTP/1.1 200 OK\r\n%s%s%s%s%s",
             "Content-Type: text/html\r\n\r\n",
             "<html><head><style>",
-            "body {font-family: monospace; font-size: 100px;}",
+            "body {font-family: monospace; font-size: 100px; text-align:center;}",
             "td {padding: 5px 6px;}",
-            "</style></head><body><table>\n");
+            "</style></head><body><table align = center>\n");
     writen(out_fd, buf, strlen(buf));
     DIR *d = fdopendir(dir_fd);
     struct dirent *dp;
@@ -256,7 +289,7 @@ int open_listenfd(int port) {
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
     serveraddr.sin_port = htons((unsigned short)port);
-    
+
     // Bind syscall
     if (bind(listenfd, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) < 0)
         return -1;
@@ -265,21 +298,6 @@ int open_listenfd(int port) {
     if (listen(listenfd, LISTENQ) < 0)
         return -1;
     return listenfd;
-}
-
-
-void get_time_str(char *timestr) {
-    struct tm *tm_info;
-    struct timeval tv;
-    
-    gettimeofday(&tv, NULL);
-    tm_info = localtime(&tv.tv_sec);
-    
-    strftime(timestr, 26, "%d/%m/%Y,%H:%M:%S:", tm_info);
-    char msstr[100];
-    int us = tv.tv_usec;
-    sprintf(msstr,"%06d ", us);
-    strcat(timestr, msstr);
 }
 
 
@@ -299,13 +317,15 @@ void url_decode(char* src, char* dest, int max) {
 }
 
 
-void parse_request(int fd, http_request *req) {
+int parse_request(int fd, http_request *req) {
     rio_t rio;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], timestr[100];
     req->offset = 0;
     req->end = 0;              /* default */
     rio_init(&rio, fd);
-    rio_readlineb(&rio, buf, MAXLINE);
+    if(rio_readlineb(&rio, buf, MAXLINE) < 0) {
+        return -1;
+    }
     get_time_str(timestr);
     printf("\033[1;94m\033[38;2;0;255;0m%s@%d : %s\033[0m", timestr, getpid(), buf);
     sscanf(buf, "%s %s", method, uri); /* version is not cared */
@@ -334,6 +354,7 @@ void parse_request(int fd, http_request *req) {
         }
     }
     url_decode(filename, req->filename, MAXLINE);
+    return 0;
 }
 
 
@@ -395,11 +416,14 @@ void serve_static(int out_fd, int in_fd, http_request *req,
 
 
 void process(int fd, struct sockaddr_in *clientaddr) {
-    char timestr[100];
+    char timestr[100]; int pid = getpid();
     get_time_str(timestr);
-    printf("%s@%d : accept request, fd is %d\n", timestr, getpid(), fd);
+    printf("%s@%d : accept request, fd is %d\n", timestr, pid, fd);
     http_request req;
-    parse_request(fd, &req);
+    if(parse_request(fd, &req) < 0) {
+        printf("%s@%d : this client didn't said anything further...\n", timestr, pid);
+        return;
+    }
     char filename[512];
     strcpy(filename, "./htdocs/"); // root directory of server
     strcat(filename, req.filename);
@@ -433,6 +457,19 @@ void process(int fd, struct sockaddr_in *clientaddr) {
 }
 
 
+int get_int() {
+    char *end, buf[1000];
+    int n = 0;
+    do {
+        if (!fgets(buf, sizeof buf, stdin))
+            break;
+        buf[strlen(buf) - 1] = 0;
+        n = strtol(buf, &end, 10);
+    } while (end != buf + strlen(buf));
+    return n;
+}
+
+
 void terminate(int sig) {
     char timestr[100];
     get_time_str(timestr);
@@ -453,9 +490,7 @@ void init_signal_handlers() {
 
 int main(int argc, char** argv) {
     struct sockaddr_in clientaddr;
-    int port_no = 8000,
-        listenfd,
-        connfd, i, max_listeners = 20;
+    int port_no = 8000, listenfd, connfd, i, max_listeners = 20;
     char timestr[100];
     socklen_t clientlen = sizeof clientaddr;
     
@@ -477,32 +512,38 @@ int main(int argc, char** argv) {
 
     listenfd = open_listenfd(port_no);
     if (listenfd > 0) {
-        printf("\033[1;94m\033[38;2;0;0;255m  < RVC micro HTTP server by @rvcgeeks >  \033[0m\n"
-               "Server is:\nListening on port %d\nWith socket descriptor %d\nWith %d listeners\n"
+        printf("\033[1;94m\033[38;2;0;0;255m  < Micro HTTP server by @rvcgeeks >  \033[0m\n"
+               "Server is:\n"
+               "Listening on port %d\n"
+               "With socket descriptor %d\n"
+               "With %d listeners\n"
+               "PRESS Ctrl - C to terminate.\n\n"
+               "\033[48;2;255;0;0m\033[1;94m\033[38;2;255;255;255mDD/MM/YYYY,HH:MM:SS:u-secs @pid  : current action        \033[0m\n"
                , port_no, listenfd, max_listeners);
-        printf("PRESS Ctrl - C to terminate.\n\n"
-               "\033[48;2;255;0;0m\033[1;94m\033[38;2;255;255;255mDD/MM/YYYY,HH:MM:SS:u-secs @pid  : current action        \033[0m\n");
     } else {
         perror("ERROR");
         exit(126);
     }
     // Serve 
-    for(i = 0; i < max_listeners; i++) {
-        int pid = fork();
-        if (pid == 0) {
-            // always look for an incoming request
-            for(;;) {
-                connfd = accept(listenfd, (struct sockaddr *)&clientaddr, &clientlen);
-                process(connfd, &clientaddr);
-                close(connfd);
+    for(;;) {
+        for(i = 0; i < max_listeners; i++) {
+            int pid = fork();
+            if (pid == 0) {
+                // always look for an incoming request
+                for(;;) {
+                    connfd = accept(listenfd, (struct sockaddr *)&clientaddr, &clientlen);
+                    process(connfd, &clientaddr);
+                    close(connfd);
+                }
+            } else if (pid > 0) {
+                get_time_str(timestr);
+                printf("%s@%d : listner forked\n", timestr, pid);
+            } else {
+                perror("fork");
             }
-        } else if (pid > 0) {
-            get_time_str(timestr);
-            printf("%s@%d : listner forked\n", timestr, pid);
-        } else {
-            perror("fork");
         }
+        max_listeners = get_int(); // if user enters a number fork those many listeners at runtime for scalability
     }
-    // wait forever
-    wait(NULL);
+    
+    // unreachable code 
 }
