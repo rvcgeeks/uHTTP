@@ -1,5 +1,13 @@
 #!/bin/bash
-	cc -Wall -Os uhttp.c -o uhttp
+
+	cc -Wall -Os \
+	    src/main.c -o uhttp \
+	   -ffunction-sections -fdata-sections -fno-common -fno-builtin -flto \
+	   -Wl,--gc-sections
+	strip --strip-all --discard-all \
+	      -R .comment -R .gnu.version -R .note.* \
+	       uhttp   
+	       
 	./uhttp &
 	firefox http://localhost:8000/getting_started/index.html
 	kill -2 `pidof uhttp`
