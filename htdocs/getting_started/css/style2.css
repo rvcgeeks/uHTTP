@@ -1,0 +1,20 @@
+.container
+{
+	text-align: center;
+	font-size: 3em;
+	width: 36em;
+	height: 12em;
+	position: absolute;
+    top:50%;
+    bottom: 0;
+    left: 0;
+    right: 0;
+
+    margin: auto;
+}
+
+video {
+    display: block;
+    margin: 0 auto;
+    z-index: 10;
+}
