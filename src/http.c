@@ -78,9 +78,10 @@ void handle_directory_request(int out_fd, int dir_fd, char *filename) {
     while ((dp = readdir(d)) != NULL) {
         if(!strcmp(dp->d_name, "."))
             continue;
-        if ((ffd = openat(dir_fd, dp->d_name, O_RDONLY)) == -1)
+        if ((ffd = openat(dir_fd, dp->d_name, O_RDONLY)) == -1) {
             perror(dp->d_name);
             continue;
+        }
         fstat(ffd, &statbuf);
         strftime(m_time, sizeof(m_time),
                  "%Y-%m-%d %H:%M", localtime(&statbuf.st_mtime));
